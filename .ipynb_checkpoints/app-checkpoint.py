@@ -5,8 +5,8 @@ from fastapi import FastAPI, HTTPException
 # --- IMPORTS ---
 # Matches the filenames currently on your Render instance
 from pipeline import DataTransformer
-from embeddings_V2 import EmbeddingModel
-from vector_db_V2 import VectorDatabase
+from embedding_v3 import EmbeddingModel
+from vectordb_v3 import VectorDatabase
 
 # --- CONFIG & LOGGING ---
 logging.basicConfig(level=logging.INFO)

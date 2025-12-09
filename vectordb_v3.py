@@ -1,9 +1,3 @@
-#!/usr/bin/env python
-# coding: utf-8
-
-# In[ ]:
-
-
 import os
 import logging
 from typing import List, Dict, Any
@@ -17,99 +11,86 @@ class VectorDatabase:
     def __init__(self, collection_name: str):
         self.collection_name = collection_name
         
-        # 1. Connect to Qdrant
-        # If QDRANT_HOST is set (for Cloud/Render), use it. Otherwise, default to memory/local.
-        self.host = os.getenv("QDRANT_HOST")
+        # 1. Connect
+        self.host = "localhost"
         self.api_key = os.getenv("QDRANT_API_KEY")
         
-        if self.host:
-            self.client = QdrantClient(url=self.host, api_key=self.api_key)
-            logger.info(f"✅ Connected to Qdrant at {self.host}")
-        else:
-            # Fallback for local testing if no host provided
-            logger.warning("⚠️ No QDRANT_HOST set. Using in-memory Qdrant for testing.")
-            self.client = QdrantClient(":memory:")
+        self.client = QdrantClient(host="localhost", port=6333)
+        logger.info(f"✅ Connected to Qdrant at {self.host}")
+
 
     def get_or_create_collection(self, vector_size: int = 1536):
         """
-        Ensures the collection exists. If not, creates it.
+        Recreates collection to ensure fresh state.
         """
-        if not self.client.collection_exists(self.collection_name):
-            logger.info(f"Creating collection '{self.collection_name}' with size {vector_size}...")
-            self.client.create_collection(
-                collection_name=self.collection_name,
-                vectors_config=models.VectorParams(
-                    size=vector_size,
-                    distance=models.Distance.COSINE
-                ),
-            )
-        else:
-            logger.info(f"Collection '{self.collection_name}' already exists.")
+        if self.client.collection_exists(self.collection_name):
+            self.client.delete_collection(self.collection_name)
+
+        self.client.create_collection(
+            collection_name=self.collection_name,
+            vectors_config=models.VectorParams(
+                size=vector_size,
+                distance=models.Distance.COSINE,
+            ),
+        )
+        logger.info(f"Created/Reset collection '{self.collection_name}'")
 
     def upsert_documents(self, docs: List[Dict[str, Any]]):
         """
-        Uploads a list of documents (with 'vector' and 'text' fields) to Qdrant.
+        Uploads documents to Qdrant.
         """
         points = []
         for i, doc in enumerate(docs):
-            vector = doc.get("vector")
+            vector = doc.get("vector") or doc.get("embedding")
             text = doc.get("text")
+            metadata = doc.get("metadata", {})
             
-            # Basic Validation
             if not vector or not text:
                 continue
-                
-            # Create Payload (Metadata + Text)
-            # Remove 'vector' from payload to save space (it's stored as the vector itself)
-            payload = doc.copy()
-            if "vector" in payload:
-                del payload["vector"]
+
+            # --- CRITICAL FIX: Keep Structure Intact ---
+            # We store 'metadata' as a nested object, exactly like your input JSON.
+            payload = {
+                "text": text,
+                "metadata": metadata
+            }
             
-            # Create Point
             point = models.PointStruct(
-                id=i,  # Simple integer ID (in prod, use UUIDs)
+                id=i, 
                 vector=vector,
                 payload=payload
             )
             points.append(point)
 
-        # Batch Upload
         if points:
             self.client.upsert(
-                collection_name=self.collection_name,
+                collection_name=self.collection_name, 
                 points=points
             )
-            logger.info(f"✅ Successfully upserted {len(points)} points.")
+            logger.info(f"✅ Uploaded {len(points)} points to collection '{self.collection_name}'")
 
     def search(self, query_vector: List[float], limit: int = 3):
         """
-        Searches the collection using a query vector.
+        Searches and returns the FULL document structure.
         """
         if not self.client.collection_exists(self.collection_name):
-            logger.warning("Collection does not exist. Returning empty results.")
+            logger.warning("Collection does not exist.")
             return []
 
-        search_result = self.client.search(
+        results = self.client.query_points(
             collection_name=self.collection_name,
-            query_vector=query_vector,
-            limit=limit
+            query=query_vector,
+            limit=limit,
         )
         
-        # Convert Qdrant Points to clean dictionaries
-        results = []
-        for hit in search_result:
-            results.append({
-                "score": hit.score,
-                "payload": hit.payload
-            })
+        hits = results.points or []
+        formatted_results = []
+        
+        for hit in hits:
+            # Merge the score with the full original payload
+            # Output format: { "score": 0.9, "text": "...", "metadata": {...} }
+            full_doc = hit.payload or {}
+            full_doc["score"] = hit.score
+            formatted_results.append(full_doc)
             
-        return results
-
-# Helper class for search results (optional, keeps type safety)
-class SearchResult:
-    def __init__(self, score, title, snippet, url):
-        self.score = score
-        self.title = title
-        self.snippet = snippet
-        self.url = url
-
+        return formatted_results
