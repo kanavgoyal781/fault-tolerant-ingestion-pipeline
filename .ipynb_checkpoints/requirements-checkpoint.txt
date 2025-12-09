@@ -6,3 +6,4 @@ requests
 sentence-transformers
 qdrant-client
 numpy
+openai
