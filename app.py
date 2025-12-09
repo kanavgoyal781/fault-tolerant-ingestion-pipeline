@@ -10,7 +10,7 @@ from pydantic import BaseModel
 # 3. vector_db_V2.py  -> VectorDatabase
 from pipeline import DataTransformer
 from embedding_v3 import EmbeddingModel 
-from vector_db_V2 import VectorDatabase 
+from vectordb_v3 import VectorDatabase 
 
 # --- CONFIG & LOGGING ---
 logging.basicConfig(level=logging.INFO)
