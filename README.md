@@ -11,6 +11,12 @@ If anything is unclear, breaks, or you’d like to discuss design choices, pleas
 
 ---
 
+## 3 ways to run the pipeline
+1. **Live Deployment** expalained in below in **1. Live deployment – how to run the hosted app** This requires giving the json as an input to the REST APIs.
+2. **Running the FastAPI locally** explained below in **3.1 Start the API Locally** -  This requires giving the json as an input to the REST APIs.
+3. **Running the pipeline through local python code** explained in **3.2 Run the Batch Transformation Pipeline (Writes to output/)** - This reads the input file and produces the output file locally.
+
+
 ## 1. Live deployment – how to run the hosted app
 
 A live deployment of this API is available at:
@@ -60,10 +66,12 @@ From the repo root:
 
 ## 3. How to Run Locally 🛠️
 
-Running the app locally provides better observability, allowing you to monitor real-time logs and inspect the dead letter queue directly in your terminal. On the live deployment, these internal logs are not publicly visible (though they are accessible via the Render dashboard)
-Running the app locally:
+Running the app locally provides better observability, allowing you to monitor real-time logs from terminal. On the live deployment, these internal logs are not publicly visible (though they are accessible via the Render dashboard). 
 
+> **Note:** `app.py` prints real-time logs in terminal but does **not** write any files to disk.  
+> To save the clean JSON output, dead-letter queue, and `ingestion_report.csv`, you need to run `pipeline.py` (described below).
 
+### 3.1 Start the API Locally
 ```bash
 git clone [https://github.com/YOUR-USERNAME/capitol-ai-assessment.git] #Clone the repository
 cd capitol-ai-assessment  # or the folder where app.py lives
@@ -80,8 +88,22 @@ docker run --rm -p 6333:6333 qdrant/qdrant #Start a local Qdrant instance (vecto
 
 python app.py  #Run the app
 ```
+
 > **Note:** Open - http://localhost:8000/docs – to try the same endpoints as the deployed version.
 
+### 3.2 Run the Batch Transformation Pipeline (Writes to output/)
+
+Running the pipeline below will save the output into the capitol-ai-assessment/output folder:
+	1.	Clean JSON output (processed output file)
+	2.	ingestion_report.csv
+	3.	Dead-letter queue
+
+To run the data transformation pipeline, make sure the capitol-ai-assessment/data folder contains a file named raw_customer_api.json, then run:
+
+```bash 
+python pipeline.py # Run from repo root
+```
+### 3.3 Testing
 
 I have added testing funtionality in this app. In order to run the tests, run:-
 ``` bash
@@ -98,7 +120,7 @@ This runs:
 3. **Property tests** – `tests/test_properties.py`  
 
 > Note: The exact behavior of each test suite is described later in the individual test sections.
-## 2. Project Overview 📖
+## 4. Project Overview 📖
 
 This solution implements a production-grade data ingestion pipeline that takes messy, nested CMS API data and turns it into clean, schema-validated Qdrant documents. It then embeds and indexes them into a Qdrant vector database for semantic search.
 
@@ -132,6 +154,7 @@ At a high level, the system performs three main actions:
 * Handles missing/nullable fields (`canonical_website`, `taxonomy`, dates, etc.) gracefully.
 * Optional fields fall back to `None` or empty lists instead of breaking the run.
 * **Mandatory failures** (no `_id`, no resolvable `url`, or empty `text`) cause the document to be skipped and sent to the **Dead Letter Queue** rather than crashing the pipeline.
+* If a new document has an external ID that has been seen before, then the previous record gets overwritten with the new record
 
 ### 🛡️ Key Technical Features
 
@@ -172,19 +195,22 @@ A small but meaningful test suite ensures the system behaves as expected:
 * **Integration tests:** Run the pipeline end-to-end.
 * **Property-based tests:** Fuzz malformed/edge inputs to ensure the code is resilient.
 
-#### 7. SeenID Track
-
-*Details of each test suite are described later in the Testing section.*
+#### 7. ID Repetiton Track (Idempotent)
+**If another document with the same ID comes, the code will overwrite the previous record**
 
 ---
-## 3. Architecture Diagram and Data Flow
+## 5. Architecture Diagram and Data Flow
+![alt text](rough_arch_diag.jpeg)
+
 ---
+This diagram could have been better, but consider this a rough sketch. I couldn't make a better diagram due to time limitation.
 ##
-## 4. Component: `pipeline.py` – Transformation & Validation 🧹
+## 6. Component: 
+`pipeline.py` – Transformation & Validation 🧹
 
 `pipeline.py` contains the **core transformation logic** that turns raw CMS API documents into clean, schema-validated Qdrant documents. Everything that gets embedded and indexed flows through here.
 
-### 4.1 Pydantic Schema Models
+### 6.1.1 Pydantic Schema Models
 
 Two Pydantic models define the target shape of each record:
 
@@ -204,7 +230,7 @@ If a document passes these models, it is **guaranteed** to match the Qdrant sche
 
 ---
 
-### 4.2 Text Extraction & HTML Cleaning
+### 6.1.2 Text Extraction & HTML Cleaning
 
 The CMS stores content as nested HTML under `content_elements`. The transformer makes this safe and readable:
 
@@ -227,7 +253,7 @@ The CMS stores content as nested HTML under `content_elements`. The transformer 
 
 ---
 
-### 4.3 Metadata Extraction Helpers
+### 6.1.3 Metadata Extraction Helpers
 
 `DataTransformer` exposes small helper methods to pull each logical field out of the raw JSON:
 
@@ -254,7 +280,8 @@ The CMS stores content as nested HTML under `content_elements`. The transformer 
   - `extract_publish_date`, `extract_first_publish_date`, `extract_datetime`
   - Very conservative: accept only well-formed ISO strings ending in `Z`.
   - Otherwise return `None` (dates are optional).
-
+  - In the original brief, metadata.datetime is described as “typically the same as publish_date but may represent different semantics.” Initially, I treated datetime as identical to publish_date. After clarifying with Jordan, I updated the logic to prioritize the current state of the article rather than only its original publication time. Concretely, I first look for a last_updated_date field and, if present and parsable, I use that as metadata.datetime. If last_updated_date is missing or invalid, I fall back to publish_date. For unchanged articles, this means datetime == publish_date; for articles that have been edited, datetime reflects the most recent update instead.
+  - 
 - **`extract_website`**
   - Reads `canonical_website` if present.
 
@@ -270,7 +297,7 @@ The CMS stores content as nested HTML under `content_elements`. The transformer 
 
 ---
 
-### 4.4 Main Orchestrator: `process_document(raw_doc)`
+### 6.1.4 Main Orchestrator: `process_document(raw_doc)`
 
 `process_document` is the single entry point for transforming one raw document:
 
@@ -317,12 +344,12 @@ The CMS stores content as nested HTML under `content_elements`. The transformer 
 
 ---
 
-### 4.5 Batch Mode: Running `pipeline.py` Directly
+### 6.1.5 Batch Mode: Running `pipeline.py` Directly
 
 When `pipeline.py` is executed as a script (`python pipeline.py`):
 
 - It reads `data/raw_customer_api.json`.
-- Maintains a `seen_ids` set to avoid writing the same `_id` multiple times in the **batch output file**.
+- Maintains a `valid_docs_map` and overwrites the file if it has same ID that any older file had (idempotent) **batch output file**.
 - For each doc:
   - Calls `process_document(doc)`.
   - On success:
@@ -337,11 +364,12 @@ At the end it writes:
 
 - `output/processed_output_updated_2.json` – all successfully transformed documents.
 - `output/ingestion_report.csv` – one row per original document (`id`, `status`, `reason`).
+- `output/dead_letter_queue.json;` - Dead letter queue
 
 This batch mode is useful for offline runs, debugging, and is also used by the tests to validate the transformation step independently of the API.
 
 
-## 5. Vector Database Service (`vectordb_v3.py`)
+## 6.2 Vector Database Service (`vectordb_v3.py`)
 
 `vectordb_v3.py` defines the `VectorDatabase` class, which manages a Qdrant collection and provides upsert and search operations.
 
@@ -406,7 +434,7 @@ Performs a semantic search over the collection.
     "score": 0.94
   }
 
-## 6. Embedding Service (`embedding_v3.py`)
+## 6.3 Embedding Service (`embedding_v3.py`)
 
 `embedding_v3.py` defines the `EmbeddingModel` class, which acts as a robust client wrapper for the OpenAI API, responsible for converting text into high-dimensional vector representations.
 
@@ -438,11 +466,11 @@ Generates a vector embedding for a given text string.
   - If the API fails (network error, rate limit, auth error), it logs the specific error and returns an empty list `[]` instead of crashing the pipeline.
 - **Output:** A list of 1536 floats (or `[]` on failure).
 
-## 7. API Gateway & Orchestrator (`app.py`)
+## 6.4. API Gateway & Orchestrator (`app.py`)
 
 `app.py` serves as the entry point for the system. It implements a **stateless, robust orchestration layer** using FastAPI. Rather than containing core business logic (like cleaning or database operations), it coordinates the specialized classes (`DataTransformer`, `EmbeddingModel`, `VectorDatabase`) to execute the pipeline stages.
 
-### 3.1 Robust Input Handling ("The Bouncer Pattern")
+### 6.4.1 Robust Input Handling ("The Bouncer Pattern")
 
 A key architectural decision in `app.py` is "Defensive Ingestion." Instead of using strict Pydantic models for the *input payload* (which would cause a 400 Bad Request for the entire batch if a single item was malformed), the endpoints accept `List[Any]`.
 
@@ -453,7 +481,7 @@ A key architectural decision in `app.py` is "Defensive Ingestion." Instead of us
     * **Valid Data:** Only dictionary objects are allowed to proceed to the transformation logic.
 *Benefit:* A batch of 1,000 documents will not fail just because one item is malformed. The system processes the valid 999 and logs the error for the 1.
 
-### 3.2 Endpoint Logic
+### 6.4.2 Endpoint Logic
 
 #### `POST /pipeline/transform`
 * **Goal:** Clean raw data and validate schema.
@@ -476,7 +504,7 @@ A key architectural decision in `app.py` is "Defensive Ingestion." Instead of us
 * **Workflow:**
     1.  **Validation:** Filters out any documents that are missing the `vector` field.
     2.  **Dynamic Configuration:** Inspects the first valid vector to determine the required dimension size (e.g., 1536) and calls `VectorDatabase.get_or_create_collection`.
-    3.  **Upsert:** Batches the valid documents and sends them to Qdrant via `upsert_documents`. This operation is **idempotent**: if a document ID already exists, it is updated with the new data.
+    3.  **Upsert:** Batches the valid documents and sends them to Qdrant via `upsert_documents`.
 
 #### `POST /pipeline/run_full`
 * **Goal:** End-to-end processing in a single call.
@@ -491,11 +519,11 @@ A key architectural decision in `app.py` is "Defensive Ingestion." Instead of us
     3.  Performs a nearest-neighbor search using `VectorDatabase.search`.
     4.  Returns the matching documents (text + metadata) and their similarity scores.
 
-## 8. Testing Suite 🧪
+## 6.5. Testing Suite 🧪
 
 The project includes a comprehensive test suite (`tests/`) to check data integrity, pipeline robustness, and integration behavior.
 
-### 8.1 Contract Tests (`test_contract.py`)
+### 6.5.1 Contract Tests (`test_contract.py`)
 
 **Goal:** Verify that the transformation logic adheres to the expected Qdrant-style schema.
 
@@ -514,7 +542,7 @@ The project includes a comprehensive test suite (`tests/`) to check data integri
 
 ---
 
-### 8.2 Integration Tests (`test_integration.py`)
+### 6.5.2 Integration Tests (`test_integration.py`)
 
 **Goal:** Check the end-to-end flow using real data and the real embedding service.
 
@@ -533,7 +561,7 @@ The project includes a comprehensive test suite (`tests/`) to check data integri
 
 ---
 
-### 8.3 Property-Based Tests (`test_properties.py`)
+### 6.5.3 Property-Based Tests (`test_properties.py`)
 
 **Goal:** Use fuzz testing to show that the transformer is stable even when fed “garbage-shaped” data.
 
@@ -560,8 +588,8 @@ These tests together cover:
 
 
 
-## 10. Design Decisions
-### 10.1 Why Pydantic?
+## 7. Design Decisions
+### 7.1 Why Pedantic?
 
 **Decision:** I chose **Pydantic** (`MetadataModel`, `QdrantDocument`) as the strict data validation layer.
 
@@ -574,7 +602,7 @@ These tests together cover:
     * **Result:** This native support for both directions allows the schema to evolve over time without requiring breaking code changes or complex migration scripts.
 
 
-## 10.2 Vector Database: Qdrant
+### 7.2 Vector Database: Qdrant
 
 
 **Decision:** I chose **Qdrant** (Dockerized locally) as the vector store.
@@ -582,12 +610,12 @@ These tests together cover:
 * **Why Qdrant:**
     * **Exceptional Speed and Performance:** Built in Rust, Qdrant is highly performant. It achieves millisecond-level retrieval times through efficient **HNSW (Hierarchical Navigable Small World)** indexing. HNSW allows search to grow roughly logarithmically with the number of vectors, making large datasets searchable in milliseconds.
     * **Real-Time Analytics:** Qdrant supports real-time multi-modal data processing and real-time decision-making.
-    * **Idempotent Updates:** This directly addresses the update requirement. My design uses `metadata.external_id` as the Qdrant point ID and always calls `upsert`, meaning a newer version of the same article overwrites the older one in place.
     * **Memory and Cost Efficiency:** The platform offers advanced compression techniques such as scalar, binary, and product quantization. Binary quantization dramatically reduces the memory footprint of vectors, offering memory usage cuts by up to 32x.
     * **Cloud-Native Scalability:** Qdrant supports both vertical and horizontal scaling with features like sharding and replication for high availability.
     * **Unified Storage:** Qdrant natively stores a vector and the arbitrary JSON payload (metadata) per point. This makes it a **Single Source of Truth**, eliminating the need for a separate relational database for metadata.
     * **Open Source Model:** The open-source nature helps avoid vendor lock-in, fosters a strong community, and allows for transparency and customizability.
-### 10.3 Why FastAPI?
+  
+### 7.3 Why FastAPI?
 
 **Decision:** I chose FastAPI as the web framework for the API Gateway and Orchestrator (`app.py`).
 
@@ -609,7 +637,7 @@ These tests together cover:
 
 **Conclusion:** FastAPI gives a good balance of performance, clean type-driven design, and low boilerplate, making it a natural fit for this kind of high-throughput, JSON-only ingestion and search service.
 
-### 10.4 Code Modularity & Separation of Concerns
+### 7.4 Code Modularity & Separation of Concerns
 
 **Decision:** The project is engineered around high modularity, with code split into specialized files (e.g., `pipeline.py` for transformation, `embedding_v3.py` for embedding API calls, `vectordb_v3.py` for Qdrant, and `app.py` for routing/orchestration).
 
@@ -635,7 +663,7 @@ These tests together cover:
 
 Overall, the modular structure ensures that each part of the system does one job well, and changes in one layer do not ripple unnecessarily through the rest of the codebase.
 
-### 10.5 Logging, Dead Letter Queue & Reporting
+### 7.5 Logging, Dead Letter Queue & Reporting
 
 **Decision:** I built explicit observability into the pipeline using three layers:
 1. Structured logging (`output/pipeline.log`)
@@ -685,7 +713,7 @@ Overall, the modular structure ensures that each part of the system does one job
 Together, the logging + DLQ + CSV report make the pipeline observable and debuggable in production: no silent drops, clear failure modes, and an easy path to replay or inspect problematic records.
 
 
-### 10.6 Why OpenAI Embeddings (and not Hugging Face / local models)?
+### 7.6 Why OpenAI Embeddings (and not Hugging Face / local models)?
 
 **Decision:** I use OpenAI’s `text-embedding-3-small` as the single embedding backend, wrapped in a small `EmbeddingModel` class.
 
@@ -711,7 +739,7 @@ Together, the logging + DLQ + CSV report make the pipeline observable and debugg
 
 In short, OpenAI embeddings let me keep the pipeline simple, deterministic, and easy to swap later, while avoiding the operational overhead of self-hosting a transformer model for this assessment.
 
-### 10.7 Why Render for Deployment?
+### 7.7 Why Render for Deployment?
 
 **Decision:** I deployed the FastAPI API on **Render** because it was the simplest way to get a real, public endpoint running from my Docker image.
 
@@ -728,7 +756,7 @@ In short, OpenAI embeddings let me keep the pipeline simple, deterministic, and 
 
 In short, Render was the most straightforward way to show the API running “for real” without turning this into a full DevOps project.
 
-## 10.8 Trade-offs, Limitations & Future Work
+## 8 Trade-offs, Limitations & Future Work
 
 This implementation is intentionally pragmatic: it is production-shaped, but not yet production-hardened. Below are the main trade-offs behind each design choice and what I would change if this needed to serve millions of documents and high QPS.
 
@@ -895,8 +923,12 @@ In a production setting with higher traffic, the natural next step would be to:
 
 Because the current design already keeps `app.py` stateless and delegates all storage to Qdrant and external services, moving to a multi-instance, load-balanced setup is mostly an **infrastructure change**, not an application rewrite.
 
-## Honest and basic improvements
+## 9 Honest and basic improvements
 ### 9.1 The pipeline fails on invalid json structure, this is something that needs to be improved on.
-### 9.2 The app.py doesn't write to disk and change the output files like log, output and dead letter queue.
+### 9.2 The app.py doesn't write to disk.
 ### 9.3 Date handling can be done better
 ### 9.4 The testing could have covered more cases
+### 9.5 I could have implemented dashboards from logs that I made using pipeline
+### 9.6 Parallelization could have been done
+### 9.7 Diagram could have been better
+### 9.8 I could have clarified date handling much earlier
