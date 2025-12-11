@@ -66,6 +66,8 @@ From the repo root:
 
 ## 3. How to Run Locally 🛠️
 
+### Python version - python-3.13.5
+
 Running the app locally provides better observability, allowing you to monitor real-time logs from terminal. On the live deployment, these internal logs are not publicly visible (though they are accessible via the Render dashboard). 
 
 > **Note:** `app.py` prints real-time logs in terminal but does **not** write any files to disk.  
