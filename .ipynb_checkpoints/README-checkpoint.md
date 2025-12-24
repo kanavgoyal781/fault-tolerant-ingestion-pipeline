@@ -1,6 +1,6 @@
 ## Project Overview
 
-Hi 👋  
+Hi, 
 
 This project implements a production-grade data ingestion and semantic search pipeline designed to transform raw, unstructured webhook payloads into a structured, queryable knowledge base. Built on FastAPI, Qdrant, and Docker and deployed on Render, the system automates the full lifecycle of data processing. It enforces strict data contracts using Pydantic for schema validation, cleans HTML content, generates vector embeddings via OpenAI, and indexes them for high-speed semantic retrieval.
 
