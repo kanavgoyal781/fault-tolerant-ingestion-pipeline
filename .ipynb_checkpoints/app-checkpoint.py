@@ -13,10 +13,10 @@ from vectordb_v3 import VectorDatabase
 
 # --- CONFIG & LOGGING ---
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("CapitolPipeline")
+logger = logging.getLogger("fault-tolerant-ingestion-pipeline")
 
-app = FastAPI(title="Capitol-AI")
-COLLECTION_NAME = "capitol_assessment"
+app = FastAPI(title="resilient-ingestion-pipeline")
+COLLECTION_NAME = "pipeline"
 
 
 @app.get("/")

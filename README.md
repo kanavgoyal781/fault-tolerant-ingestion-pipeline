@@ -1,12 +1,6 @@
-## Project Overview
+## Quick Overview
 
-Hi, 
-
-This project implements a production-grade data ingestion and semantic search pipeline designed to transform raw, unstructured webhook payloads into a structured, queryable knowledge base. Built on FastAPI, Qdrant, and Docker and deployed on Render, the system automates the full lifecycle of data processing. It enforces strict data contracts using Pydantic for schema validation, cleans HTML content, generates vector embeddings via OpenAI, and indexes them for high-speed semantic retrieval.
-
-Unlike standard ingestion scripts, this pipeline is engineered for fault tolerance and data reliability in distributed environments. It utilizes a defensive "Bouncer Pattern" to validate payloads individually, ensuring that a single malformed record does not crash the entire processing batch. Critical architecture decisions include an idempotent upsert mechanism to handle duplicate webhooks gracefully and a Dead Letter Queue (DLQ) that quarantines failed records for debugging, ensuring "zero data loss" even when upstream data is corrupted.
-
-To maintain operational visibility, the system is instrumented with structured logging and automated telemetry. After every ingestion run, the pipeline generates a health dashboard and CSV audit trail that tracks success rates, failure breakdowns, and root causes (e.g., missing URLs vs. Pydantic validation errors). This approach treats observability as a first-class citizen, allowing engineers to monitor pipeline health in real-time and triage data quality issues immediately.
+Production-grade ingestion + semantic search pipeline that transforms messy CMS API payloads into schema-validated Qdrant documents, then embeds + indexes them for fast semantic retrieval. Built with FastAPI + Docker, deployed on Render, and integrated with Qdrant + OpenAI embeddings with logging and health endpoints.
 
 If anything is unclear, breaks, or you’d like to discuss design choices, please feel free to reach out:
 
@@ -16,7 +10,7 @@ If anything is unclear, breaks, or you’d like to discuss design choices, pleas
 ---
 
 ## 3 ways to run the pipeline
-1. **Live Deployment** expalained in below in **1. Live deployment – how to run the hosted app** This requires giving the json as an input to the REST APIs.
+1. **Live Deployment** explained in below in **1. Live deployment – how to run the hosted app** This requires giving the json as an input to the REST APIs.
 2. **Running the FastAPI locally** explained below in **3.1 Start the API Locally** -  This requires giving the json as an input to the REST APIs.
 3. **Running the pipeline through local python code** explained in **3.2 Run the Batch Transformation Pipeline (Writes to output/)** - This reads the input file and produces the output file locally.
 
@@ -79,8 +73,8 @@ Running the app locally provides better observability, allowing you to monitor r
 
 ### 3.1 Start the API Locally
 ```bash
-git clone [https://github.com/YOUR-USERNAME/capitol-ai-assessment.git] #Clone the repository
-cd capitol-ai-assessment  # or the folder where app.py lives
+git clone [https://github.com/USERNAME/fault-tolerant-ingestion-pipeline.git] #Clone the repository
+cd fault-tolerant-ingestion-pipeline  # or the folder where app.py lives
 
 python -m venv .venv #create and activate a virtual env
 source .venv/bin/activate          # Windows: .venv\Scripts\activate
@@ -99,19 +93,19 @@ python app.py  #Run the app
 
 ### 3.2 Run the Batch Transformation Pipeline (Writes to output/)
 
-Running the pipeline below will save the output into the capitol-ai-assessment/output folder:
+Running the pipeline below will save the output into the fault-tolerant-ingestion-pipeline/output folder:
 	1.	Clean JSON output (processed output file)
 	2.	ingestion_report.csv
 	3.	Dead-letter queue
 
-To run the data transformation pipeline, make sure the capitol-ai-assessment/data folder contains a file named raw_customer_api.json, then run:
+To run the data transformation pipeline, make sure the fault-tolerant-ingestion-pipeline/data folder contains a file named raw_customer_api.json, then run:
 
 ```bash 
 python pipeline.py # Run from repo root
 ```
 ### 3.3 Testing
 
-I have added testing funtionality in this app. In order to run the tests, run:-
+I have added testing functionality in this app. In order to run the tests, run:-
 ``` bash
 # From the repo root
 pytest -q          # run all tests (quiet)
@@ -130,9 +124,9 @@ This runs:
 
 This solution implements a production-grade data ingestion pipeline that takes messy, nested CMS API data and turns it into clean, schema-validated Qdrant documents. It then embeds and indexes them into a Qdrant vector database for semantic search.
 
-I primarily focused on **Path A: Data Engineering Depth**, transforming the full dataset (50 documents) with robust validation and error handling in line with `data/qdrant_schema.md`.
+I primarily focused on **Data Engineering Depth**, transforming 50 documents with robust validation and error handling in line with `data/qdrant_schema.md`.
 
-In addition, I implemented several elements from **Path B: Infrastructure & Deployment**:
+In addition, I implemented several **Infrastructure & Deployment** features:
 * A deployable FastAPI service with clear endpoints.
 * Dockerized app, deployed live on Render.
 * Integration with a real Qdrant vector DB and OpenAI embeddings.
@@ -201,7 +195,7 @@ A small but meaningful test suite ensures the system behaves as expected:
 * **Integration tests:** Run the pipeline end-to-end.
 * **Property-based tests:** Fuzz malformed/edge inputs to ensure the code is resilient.
 
-#### 7. ID Repetiton Track (Idempotent)
+#### 7. ID Repetition Track (Idempotent)
 **If another document with the same ID comes, the code will overwrite the previous record**
 
 ---
@@ -286,8 +280,7 @@ The CMS stores content as nested HTML under `content_elements`. The transformer 
   - `extract_publish_date`, `extract_first_publish_date`, `extract_datetime`
   - Very conservative: accept only well-formed ISO strings ending in `Z`.
   - Otherwise return `None` (dates are optional).
-  - In the original brief, metadata.datetime is described as “typically the same as publish_date but may represent different semantics.” Initially, I treated datetime as identical to publish_date. After clarifying with Jordan, I updated the logic to prioritize the current state of the article rather than only its original publication time. Concretely, I first look for a last_updated_date field and, if present and parsable, I use that as metadata.datetime. If last_updated_date is missing or invalid, I fall back to publish_date. For unchanged articles, this means datetime == publish_date; for articles that have been edited, datetime reflects the most recent update instead.
-  - 
+ 
 - **`extract_website`**
   - Reads `canonical_website` if present.
 
@@ -595,7 +588,7 @@ These tests together cover:
 
 
 ## 7. Design Decisions
-### 7.1 Why Pedantic?
+### 7.1 Why Pydantic?
 
 **Decision:** I chose **Pydantic** (`MetadataModel`, `QdrantDocument`) as the strict data validation layer.
 
@@ -903,7 +896,7 @@ This implementation is intentionally pragmatic: it is production-shaped, but not
 - Introduce concurrency controls (semaphores, connection pools) and structured retries with exponential backoff to make the system more resilient under load.
 #### Single API Instance Today (No Load Balancer Yet)
 
-Right now, the FastAPI service runs as a **single instance** (one container on Render). That’s fine for this assessment and light traffic, but it has some clear limitations:
+Right now, the FastAPI service runs as a **single instance** (one container on Render), limitations:
 
 - If that one instance goes down, the API is temporarily unavailable.
 - Throughput is bounded by the CPU/RAM of a single container.
@@ -928,13 +921,3 @@ In a production setting with higher traffic, the natural next step would be to:
   - Scale back in when load drops, to save cost.
 
 Because the current design already keeps `app.py` stateless and delegates all storage to Qdrant and external services, moving to a multi-instance, load-balanced setup is mostly an **infrastructure change**, not an application rewrite.
-
-## 9 Honest and basic improvements
-### 9.1 The pipeline fails on invalid json structure, this is something that needs to be improved on.
-### 9.2 The app.py doesn't write to disk.
-### 9.3 Date handling can be done better
-### 9.4 The testing could have covered more cases
-### 9.5 I could have implemented dashboards from logs that I made using pipeline
-### 9.6 Parallelization could have been done
-### 9.7 Diagram could have been better
-### 9.8 I could have clarified date handling much earlier
