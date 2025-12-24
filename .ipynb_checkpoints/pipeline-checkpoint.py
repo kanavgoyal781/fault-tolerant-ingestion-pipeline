@@ -54,6 +54,7 @@ class DataTransformer:
     def __init__(self):
         # We can track state here if needed (e.g. total processed count)
         pass
+        
 
     def clean_text(self, raw_string):
         if raw_string is None:
@@ -539,6 +540,43 @@ class DataTransformer:
             return None, report
 dead_letter_path = "output/dead_letter_queue.jsonl"
 
+
+def print_telemetry_dashboard(report_data):
+    """
+    Prints a simple reliability dashboard to the console.
+    """
+    total = len(report_data)
+    if total == 0: return
+
+    # 1. Calculate Metrics
+    success = sum(1 for r in report_data if r['status'] == 'SUCCESS')
+    failed = total - success
+    success_rate = (success / total) * 100
+
+    # 2. Group Failure Reasons
+    failures = {}
+    for r in report_data:
+        if r['status'] != 'SUCCESS':
+            reason = r.get('reason', 'Unknown')
+            failures[reason] = failures.get(reason, 0) + 1
+
+    # 3. Print The Dashboard
+    print("\n" + "="*40)
+    print(" 📊 PIPELINE HEALTH DASHBOARD")
+    print("="*40)
+    print(f" • Total Documents:   {total}")
+    print(f" • Success Rate:      {success_rate:.1f}%")
+    print(f" • Failed/Skipped:    {failed}")
+    
+    if failures:
+        print("\n ⚠️  FAILURE BREAKDOWN (ROOT CAUSE)")
+        print("-" * 40)
+        # Sort by count (highest first)
+        for reason, count in sorted(failures.items(), key=lambda x: x[1], reverse=True):
+            print(f"   - {reason:<20} : {count} docs")
+    print("="*40 + "\n")
+
+
 # --- MAIN EXECUTION ---
 if __name__ == "__main__":
     try:
@@ -595,6 +633,8 @@ if __name__ == "__main__":
         writer.writeheader()
         writer.writerows(report_data)
 
+
+    print_telemetry_dashboard(report_data)
     # Calculate Stats for Final Print
     total_input = len(raw_data)
     total_unique_output = len(valid_docs)
